@@ -1,0 +1,12 @@
+# Root Python environment
+/venv313/
+
+# Downloaded SQLAlchemy package files
+/backend/sqlalchemy-2.1.9/
+/backend/*.tar.gz
+# Saved browser page and assets
+/IdeaForge AI.html
+/IdeaForge AI_files/
+/backend/venv313/
+
+/backend/venv313/
