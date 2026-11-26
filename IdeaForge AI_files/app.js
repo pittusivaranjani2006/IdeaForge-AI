@@ -9,6 +9,11 @@
  */
 
 import api from "./api.js";
+import { escapeHtml, diffClass, statusClass, safeScore, safeId, idAttr } from "./security.js";
+
+function scoreClass(value) {
+  return `score-${Math.round(safeScore(value))}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants (preserved from original)
@@ -62,22 +67,12 @@ function setTheme() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Utilities (preserved)
 // ─────────────────────────────────────────────────────────────────────────────
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-}
-
 function debounce(fn, ms = 300) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
 function buildTechBadges(tech) {
   return (tech || []).map(t => `<span class="pill tech">${escapeHtml(t)}</span>`).join("");
-}
-
-function diffClass(d) {
-  return `difficulty-${(d || "medium").toLowerCase()}`;
 }
 
 function toast(msg, type = "info") {
@@ -92,6 +87,54 @@ function showLoader(container) {
   if (container) container.innerHTML = `<div class="loader-wrap"><div class="loader"></div></div>`;
 }
 
+let healthTimer = null;
+let healthInFlight = false;
+let healthRetryDelay = 15000;
+
+function ensureHealthBanner() {
+  let banner = document.getElementById("healthBanner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "healthBanner";
+    banner.className = "health-banner";
+    banner.hidden = true;
+    document.body.appendChild(banner);
+  }
+  return banner;
+}
+
+function setBackendStatus(available) {
+  const banner = ensureHealthBanner();
+  banner.hidden = available;
+  banner.textContent = available ? "" : "Backend unavailable — some features may be limited.";
+}
+
+async function refreshHealth() {
+  if (healthInFlight) return;
+  healthInFlight = true;
+  try {
+    const available = await api.checkHealth({ timeoutMs: 4000 });
+    setBackendStatus(available);
+    healthRetryDelay = available ? 15000 : Math.min(healthRetryDelay * 2, 60000);
+  } catch {
+    setBackendStatus(false);
+    healthRetryDelay = Math.min(healthRetryDelay * 2, 60000);
+  } finally {
+    healthInFlight = false;
+    clearTimeout(healthTimer);
+    healthTimer = setTimeout(refreshHealth, healthRetryDelay);
+  }
+}
+
+function wireHealthMonitoring() {
+  ensureHealthBanner();
+  refreshHealth();
+  window.addEventListener("online", refreshHealth);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshHealth();
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth pages (rewritten to use backend)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,7 +145,7 @@ function showAuth(mode = "login") {
       <div class="auth-card glass">
         <h1 class="auth-title">IdeaForge AI</h1>
         <p class="muted">${mode === "login" ? "Welcome back — sign in to continue" : "Create your innovation account"}</p>
-        <div id="authError" class="auth-error" style="display:none;"></div>
+        <div id="authError" class="auth-error hidden"></div>
         <form id="authForm">
           <input type="email" name="email" placeholder="Email address" required autocomplete="email"/>
           <input type="password" name="password" placeholder="Password (min 8 chars, uppercase + number)" required autocomplete="${mode === "login" ? "current-password" : "new-password"}"/>
@@ -111,7 +154,7 @@ function showAuth(mode = "login") {
             ${mode === "login" ? "Sign In" : "Create Account"}
           </button>
         </form>
-        <p class="muted" style="margin-top:14px;">
+        <p class="muted mt-14">
           ${mode === "login" ? "New here?" : "Already have an account?"}
           <a href="#" id="switchAuth">${mode === "login" ? "Sign up" : "Sign in"}</a>
         </p>
@@ -138,7 +181,7 @@ function showAuth(mode = "login") {
 
     btn.disabled = true;
     btn.textContent = mode === "login" ? "Signing in…" : "Creating account…";
-    errEl.style.display = "none";
+    errEl.hidden = true;
 
     try {
       if (mode === "signup") {
@@ -159,7 +202,7 @@ function showAuth(mode = "login") {
   function showAuthError(msg) {
     const el = document.getElementById("authError");
     el.textContent = msg;
-    el.style.display = "block";
+    el.hidden = false;
   }
 }
 
@@ -209,7 +252,7 @@ function explorerPage() {
     </section>
 
     <section class="toolbar glass">
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));align-items:end;gap:16px;">
+      <div class="grid">
         <div class="field">
           <label>Search</label>
           <input id="searchInput" placeholder="Search by title or tags…" value="${escapeHtml(state.filter.q)}"/>
@@ -242,7 +285,7 @@ function explorerPage() {
     <div class="grid cards" id="explorerList">
       <div class="loader-wrap"><div class="loader"></div></div>
     </div>
-    <p class="muted" id="explorerEmpty" style="display:none;margin-top:10px;">
+    <p class="muted hidden mt-10" id="explorerEmpty">
       No matches. Try clearing filters or searching different tags.
     </p>`;
 }
@@ -266,7 +309,7 @@ async function loadExplorerIdeas() {
     list.innerHTML = items.length
       ? items.map(p => renderProblemCard(p)).join("")
       : "";
-    if (empty) empty.style.display = items.length ? "none" : "block";
+    if (empty) empty.hidden = items.length > 0;
 
     list.querySelectorAll(".favorite-btn").forEach(btn => {
       btn.onclick = () => toggleSave(Number(btn.dataset.id), btn);
@@ -291,10 +334,10 @@ function renderProblemCard(p, { compact = false } = {}) {
       <div class="muted">${escapeHtml(p.short_description || p.short || "")}</div>
       <div>${tags}${techTags}</div>
       <div class="row">
-        <a class="btn btn-ghost" href="#/problem/${p.id}">Open</a>
-        <div class="row" style="justify-content:flex-end;gap:8px;">
-          <span class="muted" title="Popularity">▲ ${p.popularity_score || 0}</span>
-          <button class="btn ${isSaved ? "btn-saved" : "btn-primary"} favorite-btn" data-id="${p.id}">
+        <a class="btn btn-ghost" href="#/problem/${idAttr(p.id)}">Open</a>
+        <div class="row row-end gap-8">
+          <span class="muted" title="Popularity">▲ ${escapeHtml(p.popularity_score || 0)}</span>
+          <button class="btn ${isSaved ? "btn-saved" : "btn-primary"} favorite-btn" data-id="${idAttr(p.id)}">
             ${isSaved ? "Saved ✓" : "Save"}
           </button>
         </div>
@@ -330,8 +373,8 @@ async function detailPage(id) {
   // Show skeleton while loading
   app.innerHTML = baseLayout(`
     <section class="detail glass glow">
-      <div class="skeleton" style="height:120px;margin-bottom:14px;"></div>
-      <div class="skeleton" style="height:200px;"></div>
+      <div class="skeleton skeleton-120"></div>
+      <div class="skeleton skeleton-200"></div>
     </section>`);
   wireBaseEvents();
 
@@ -381,9 +424,9 @@ function renderDetailHTML(p, isSaved, related, comments) {
             <div class="row">
               <div>
                 <div class="muted">${escapeHtml(p.domain)} • <span class="${diffClass(p.difficulty)}">${escapeHtml(p.difficulty)}</span></div>
-                <h2 style="margin:6px 0 0;">${escapeHtml(p.title)}</h2>
+                <h2 class="m-6-0-0">${escapeHtml(p.title)}</h2>
               </div>
-              <button class="btn ${isSaved ? "btn-saved" : "btn-primary"} favorite-btn" data-id="${p.id}">
+              <button class="btn ${isSaved ? "btn-saved" : "btn-primary"} favorite-btn" data-id="${idAttr(p.id)}">
                 ${isSaved ? "Saved ✓" : "Save"}
               </button>
             </div>
@@ -393,22 +436,22 @@ function renderDetailHTML(p, isSaved, related, comments) {
 
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">🧠</div><h3>Description</h3></div>
-            <p class="muted" style="margin:0;">${escapeHtml(p.full_description || "")}</p>
+            <p class="muted m-0">${escapeHtml(p.full_description || "")}</p>
           </div>
 
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">🧩</div><h3>Problem Statement</h3></div>
-            <p style="margin:0;">${escapeHtml(p.problem_statement || `Build a solution that solves: ${p.short_description}`)}</p>
+            <p class="m-0">${escapeHtml(p.problem_statement || `Build a solution that solves: ${p.short_description}`)}</p>
           </div>
 
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">🌍</div><h3>Real-world Use Case</h3></div>
-            <p class="muted" style="margin:0;">${escapeHtml(p.relevance || "")}</p>
+            <p class="muted m-0">${escapeHtml(p.relevance || "")}</p>
           </div>
 
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">🛠️</div><h3>Step-by-step Implementation</h3></div>
-            <ol style="margin:0;padding-left:18px;">${steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
+            <ol class="m-0 pl-18">${steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
           </div>
 
           <div class="glass panel">
@@ -418,13 +461,13 @@ function renderDetailHTML(p, isSaved, related, comments) {
 
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">✨</div><h3>Future Scope</h3></div>
-            <ul style="margin:0;padding-left:18px;">${future.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
+            <ul class="m-0 pl-18">${future.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
           </div>
 
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">💻</div><h3>Starter Code Snippet</h3></div>
             <pre>${escapeHtml(starterSnippet)}</pre>
-            <div class="row" style="margin-top:10px;">
+            <div class="row mt-10">
               <button class="btn btn-ghost" id="shareBtn">Share</button>
               <button class="btn btn-ghost" id="pdfBtn">Export PDF</button>
               <button class="btn btn-primary" id="createProjectBtn">Create Project →</button>
@@ -448,7 +491,7 @@ function renderDetailHTML(p, isSaved, related, comments) {
             <div class="icon-title"><div class="icon-badge">🔁</div><h3>Related Ideas</h3></div>
             <div class="list">
               ${related.map(r => `
-                <a class="mini-card glass" href="#/problem/${r.id}">
+                <a class="mini-card glass" href="#/problem/${idAttr(r.id)}">
                   <strong>${escapeHtml(r.title)}</strong>
                   <div class="muted">${escapeHtml(r.short_description || "")}</div>
                 </a>`).join("")}
@@ -458,7 +501,7 @@ function renderDetailHTML(p, isSaved, related, comments) {
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">🤖</div><h3>AI Tech Stack</h3></div>
             <div id="techStackPanel">
-              <button class="btn btn-ghost" id="getTechBtn" style="width:100%;">
+              <button class="btn btn-ghost btn-wide" id="getTechBtn">
                 Get AI Tech Stack Recommendation
               </button>
             </div>
@@ -513,7 +556,7 @@ function wireDetailEvents(p, existingComments) {
         tech_stack: p.tech_stack || [],
       });
       toast("Project created!", "success");
-      window.location.hash = `#/project/${proj.id}`;
+      window.location.hash = `#/project/${idAttr(proj.id)}`;
       render();
     } catch (err) { toast(err.message, "error"); }
   });
@@ -527,14 +570,14 @@ function wireDetailEvents(p, existingComments) {
         domain: p.domain,
       });
       panel.innerHTML = `
-        <p class="muted" style="font-size:.85rem;">${escapeHtml(res.summary || "")}</p>
+        <p class="muted fs-85">${escapeHtml(res.summary || "")}</p>
         ${(res.recommendations || []).map(r => `
-          <div style="margin-top:10px;">
-            <strong style="font-size:.9rem;">${escapeHtml(r.category)}</strong>
+          <div class="mt-10">
+            <strong class="fs-9">${escapeHtml(r.category)}</strong>
             <div>${(r.technologies || []).map(t => `<span class="pill tech">${escapeHtml(t)}</span>`).join("")}</div>
-            <div class="muted" style="font-size:.8rem;margin-top:4px;">${escapeHtml(r.reason || "")}</div>
+            <div class="muted fs-8 mt-4">${escapeHtml(r.reason || "")}</div>
           </div>`).join("")}
-        <p class="muted" style="font-size:.75rem;margin-top:12px;">${escapeHtml(res.disclaimer || "")}</p>`;
+        <p class="muted fs-75 mt-12">${escapeHtml(res.disclaimer || "")}</p>`;
     } catch (err) {
       panel.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
     }
@@ -584,7 +627,7 @@ function generatorPage() {
     </section>
 
     <section class="glass panel">
-      <h3 style="margin:0 0 16px;">Configure Your Idea</h3>
+      <h3 class="m-0-0-16">Configure Your Idea</h3>
       <div class="generator-grid">
         <div class="field">
           <label>Domain</label>
@@ -647,7 +690,7 @@ function generatorPage() {
           </select>
         </div>
       </div>
-      <button class="btn btn-primary" id="generateBtn" style="margin-top:16px;width:100%;padding:14px;">
+      <button class="btn btn-primary mt-16 btn-wide" id="generateBtn">
         ✨ Generate Ideas with AI
       </button>
     </section>
@@ -662,9 +705,9 @@ async function wireGeneratorEvents() {
     btn.disabled = true;
     btn.textContent = "Generating…";
     results.innerHTML = `
-      <div class="glass panel" style="margin-top:14px;">
+      <div class="glass panel mt-14">
         <div class="loader-wrap"><div class="loader"></div></div>
-        <p class="muted" style="text-align:center;margin-top:12px;">AI is generating personalized ideas for you…</p>
+        <p class="muted text-center mt-12">AI is generating personalized ideas for you…</p>
       </div>`;
 
     try {
@@ -688,7 +731,7 @@ async function wireGeneratorEvents() {
         </div>`;
 
       results.querySelectorAll(".open-idea-btn").forEach(btn => {
-        btn.onclick = () => { window.location.hash = `#/idea/${btn.dataset.id}`; render(); };
+        btn.onclick = () => { window.location.hash = `#/idea/${idAttr(btn.dataset.id)}`; render(); };
       });
       results.querySelectorAll(".create-project-btn").forEach(btn => {
         btn.onclick = () => createProjectFromIdea(btn.dataset.id);
@@ -696,7 +739,7 @@ async function wireGeneratorEvents() {
       toast(`${items.length} ideas generated!`, "success");
     } catch (err) {
       results.innerHTML = `
-        <div class="glass panel" style="margin-top:14px;">
+        <div class="glass panel mt-14">
           <p class="muted">⚠️ ${escapeHtml(err.message)}</p>
           ${err.message.includes("not configured") ? `<p class="muted">Add your <strong>OPENAI_API_KEY</strong> to <code>backend/.env</code> to enable AI features.</p>` : ""}
         </div>`;
@@ -714,17 +757,19 @@ function renderGeneratedIdeaCard(idea) {
         <span class="${diffClass(idea.difficulty)}">${escapeHtml(idea.difficulty)}</span>
       </div>
       <div class="muted">${escapeHtml(idea.problem_statement || "")}</div>
-      <div class="muted" style="font-size:.82rem;margin-top:4px;">${escapeHtml(idea.proposed_solution || "")}</div>
+      <div class="muted fs-82 mt-4">${escapeHtml(idea.proposed_solution || "")}</div>
       <div>${buildTechBadges(idea.tech_stack || [])}</div>
-      <div class="row" style="margin-top:8px;">
-        <button class="btn btn-ghost open-idea-btn" data-id="${idea.id}">View Details</button>
-        <button class="btn btn-primary create-project-btn" data-id="${idea.id}">Create Project</button>
+      <div class="row mt-8">
+        <button class="btn btn-ghost open-idea-btn" data-id="${idAttr(idea.id)}">View Details</button>
+        <button class="btn btn-primary create-project-btn" data-id="${idAttr(idea.id)}">Create Project</button>
       </div>
     </article>`;
 }
 
 async function createProjectFromIdea(ideaId) {
-  const idea = state.generatedIdeasCache.find(i => String(i.id) === String(ideaId));
+  const id = safeId(ideaId);
+  if (id === null) return;
+  const idea = state.generatedIdeasCache.find(i => safeId(i.id) === id);
   if (!idea) return;
   try {
     const proj = await api.projects.create({
@@ -732,10 +777,10 @@ async function createProjectFromIdea(ideaId) {
       description: idea.problem_statement || idea.proposed_solution || "",
       domain: idea.domain,
       tech_stack: idea.tech_stack || [],
-      generated_idea_id: idea.id,
+      generated_idea_id: id,
     });
     toast("Project created from idea!", "success");
-    window.location.hash = `#/project/${proj.id}`;
+    window.location.hash = `#/project/${idAttr(proj.id)}`;
     render();
   } catch (err) { toast(err.message, "error"); }
 }
@@ -747,18 +792,19 @@ async function ideaDetailPage(id) {
   app.innerHTML = baseLayout(`<div class="glass panel"><div class="loader-wrap"><div class="loader"></div></div></div>`);
   wireBaseEvents();
   try {
-    // Try cache first
-    let idea = state.generatedIdeasCache.find(i => String(i.id) === String(id));
+    const ideaId = safeId(id);
+    if (ideaId === null) throw new Error("Invalid idea id");
+    let idea = state.generatedIdeasCache.find(i => safeId(i.id) === ideaId);
     if (!idea) {
       const { items } = await api.ideas.myGenerated({ page_size: 50 });
-      idea = items.find(i => String(i.id) === String(id));
+      idea = items.find(i => safeId(i.id) === ideaId);
     }
     if (!idea) throw new Error("Idea not found");
     app.innerHTML = baseLayout(renderGeneratedDetailHTML(idea));
     wireBaseEvents();
     document.getElementById("createProjFromIdea")?.addEventListener("click", () => createProjectFromIdea(id));
     document.getElementById("evaluateIdeaBtn")?.addEventListener("click", () => {
-      window.location.hash = `#/evaluator?id=${id}`;
+      window.location.hash = `#/evaluator?id=${idAttr(id)}`;
       render();
     });
   } catch (err) {
@@ -781,21 +827,21 @@ function renderGeneratedDetailHTML(idea) {
             <div class="row">
               <div>
                 <div class="muted">${escapeHtml(idea.domain)} • <span class="${diffClass(idea.difficulty)}">${escapeHtml(idea.difficulty)}</span> • ${escapeHtml(idea.purpose || "")}</div>
-                <h1 style="margin:8px 0 0;font-size:clamp(1.4rem,3vw,2rem);">${escapeHtml(idea.title)}</h1>
+                <h1 class="detail-title">${escapeHtml(idea.title)}</h1>
               </div>
               <a class="btn btn-ghost" href="#/generator">← Back</a>
             </div>
           </div>
 
-          ${idea.problem_statement ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🧩</div><h3>Problem Statement</h3></div><p style="margin:0;">${escapeHtml(idea.problem_statement)}</p></div>` : ""}
-          ${idea.proposed_solution ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">💡</div><h3>Proposed Solution</h3></div><p class="muted" style="margin:0;">${escapeHtml(idea.proposed_solution)}</p></div>` : ""}
-          ${idea.innovation ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🚀</div><h3>Innovation</h3></div><p class="muted" style="margin:0;">${escapeHtml(idea.innovation)}</p></div>` : ""}
-          ${idea.target_audience ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🎯</div><h3>Target Audience</h3></div><p class="muted" style="margin:0;">${escapeHtml(idea.target_audience)}</p></div>` : ""}
+          ${idea.problem_statement ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🧩</div><h3>Problem Statement</h3></div><p class="m-0">${escapeHtml(idea.problem_statement)}</p></div>` : ""}
+          ${idea.proposed_solution ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">💡</div><h3>Proposed Solution</h3></div><p class="muted m-0">${escapeHtml(idea.proposed_solution)}</p></div>` : ""}
+          ${idea.innovation ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🚀</div><h3>Innovation</h3></div><p class="muted m-0">${escapeHtml(idea.innovation)}</p></div>` : ""}
+          ${idea.target_audience ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🎯</div><h3>Target Audience</h3></div><p class="muted m-0">${escapeHtml(idea.target_audience)}</p></div>` : ""}
 
           ${idea.implementation_roadmap?.length ? `
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">🗺️</div><h3>Implementation Roadmap</h3></div>
-            <ol style="margin:0;padding-left:18px;">${idea.implementation_roadmap.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
+            <ol class="m-0 pl-18">${idea.implementation_roadmap.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
           </div>` : ""}
 
           ${idea.tech_stack?.length ? `
@@ -813,17 +859,17 @@ function renderGeneratedDetailHTML(idea) {
         </div>
 
         <div class="list">
-          ${idea.real_world_applications ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🌍</div><h3>Real-world Applications</h3></div><p class="muted" style="margin:0;">${escapeHtml(idea.real_world_applications)}</p></div>` : ""}
-          ${idea.expected_outcomes ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">📊</div><h3>Expected Outcomes</h3></div><p class="muted" style="margin:0;">${escapeHtml(idea.expected_outcomes)}</p></div>` : ""}
+          ${idea.real_world_applications ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">🌍</div><h3>Real-world Applications</h3></div><p class="muted m-0">${escapeHtml(idea.real_world_applications)}</p></div>` : ""}
+          ${idea.expected_outcomes ? `<div class="glass panel"><div class="icon-title"><div class="icon-badge">📊</div><h3>Expected Outcomes</h3></div><p class="muted m-0">${escapeHtml(idea.expected_outcomes)}</p></div>` : ""}
           ${idea.future_enhancements?.length ? `
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">✨</div><h3>Future Enhancements</h3></div>
-            <ul style="margin:0;padding-left:18px;">${idea.future_enhancements.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
+            <ul class="m-0 pl-18">${idea.future_enhancements.map(f => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
           </div>` : ""}
           ${idea.requirements?.length ? `
           <div class="glass panel">
             <div class="icon-title"><div class="icon-badge">📋</div><h3>Requirements</h3></div>
-            <ul style="margin:0;padding-left:18px;">${idea.requirements.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
+            <ul class="m-0 pl-18">${idea.requirements.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
           </div>` : ""}
         </div>
       </div>
@@ -834,8 +880,8 @@ function renderGeneratedDetailHTML(idea) {
 // AI Evaluator page
 // ─────────────────────────────────────────────────────────────────────────────
 function evaluatorPage(params) {
-  const ideaId = params?.get("id");
-  const prefilledIdea = ideaId ? state.generatedIdeasCache.find(i => String(i.id) === ideaId) : null;
+  const ideaId = safeId(params?.get("id"));
+  const prefilledIdea = ideaId === null ? null : state.generatedIdeasCache.find(i => safeId(i.id) === ideaId);
 
   return `
     <section class="hero glass glow">
@@ -844,7 +890,7 @@ function evaluatorPage(params) {
     </section>
 
     <section class="glass panel">
-      <h3 style="margin:0 0 16px;">Describe Your Idea</h3>
+      <h3 class="m-0-0-16">Describe Your Idea</h3>
       <form id="evalForm">
         <div class="field">
           <label>Project Title</label>
@@ -854,7 +900,7 @@ function evaluatorPage(params) {
           <label>Project Description</label>
           <textarea id="evalDescription" rows="5" placeholder="Describe your idea in detail — the problem it solves, your proposed approach, target users, and key features…" required>${escapeHtml(prefilledIdea ? `${prefilledIdea.problem_statement || ""}\n\n${prefilledIdea.proposed_solution || ""}` : "")}</textarea>
         </div>
-        <button class="btn btn-primary" type="submit" style="width:100%;padding:14px;">
+        <button class="btn btn-primary btn-wide" type="submit">
           🔍 Evaluate My Idea
         </button>
       </form>
@@ -864,7 +910,7 @@ function evaluatorPage(params) {
 }
 
 async function wireEvaluatorEvents(params) {
-  const ideaId = params?.get("id");
+  const ideaId = safeId(params?.get("id"));
   document.getElementById("evalForm")?.addEventListener("submit", async e => {
     e.preventDefault();
     const title = document.getElementById("evalTitle").value.trim();
@@ -874,20 +920,20 @@ async function wireEvaluatorEvents(params) {
     btn.disabled = true;
     btn.textContent = "Evaluating…";
     results.innerHTML = `
-      <div class="glass panel" style="margin-top:14px;">
+      <div class="glass panel mt-14">
         <div class="loader-wrap"><div class="loader"></div></div>
-        <p class="muted" style="text-align:center;margin-top:12px;">AI is analysing your idea…</p>
+        <p class="muted text-center mt-12">AI is analysing your idea…</p>
       </div>`;
 
     try {
       const ev = await api.ideas.evaluate({
         title,
         description,
-        generated_idea_id: ideaId ? Number(ideaId) : undefined,
+        generated_idea_id: ideaId ?? undefined,
       });
       results.innerHTML = renderEvaluationHTML(ev);
     } catch (err) {
-      results.innerHTML = `<div class="glass panel" style="margin-top:14px;"><p class="muted">⚠️ ${escapeHtml(err.message)}</p></div>`;
+      results.innerHTML = `<div class="glass panel mt-14"><p class="muted">⚠️ ${escapeHtml(err.message)}</p></div>`;
     }
     btn.disabled = false;
     btn.textContent = "🔍 Evaluate My Idea";
@@ -904,14 +950,12 @@ function renderEvaluationHTML(ev) {
     { label: "Cost Effectiveness",   val: ev.cost_effectiveness_score },
   ];
 
-  const scoreColor = v => v >= 70 ? "var(--accent)" : v >= 45 ? "var(--primary)" : "var(--danger)";
-
   return `
-    <div class="glass panel" style="margin-top:14px;">
+    <div class="glass panel mt-14">
       <h3>Evaluation Results: ${escapeHtml(ev.idea_title)}</h3>
       <div class="eval-overall">
-        <div class="eval-score-ring" style="--score:${ev.overall_score};">
-          <span>${Math.round(ev.overall_score)}</span>
+        <div class="eval-score-ring ${scoreClass(ev.overall_score)}">
+          <span>${Math.round(safeScore(ev.overall_score))}</span>
           <small>/100</small>
         </div>
         <div>
@@ -925,13 +969,13 @@ function renderEvaluationHTML(ev) {
           <div class="eval-score-row">
             <span>${escapeHtml(s.label)}</span>
             <div class="score-bar-wrap">
-              <div class="score-bar" style="width:${s.val}%;background:${scoreColor(s.val)};"></div>
+              <div class="score-bar ${scoreClass(s.val)}"></div>
             </div>
-            <span style="color:${scoreColor(s.val)};font-weight:600;">${Math.round(s.val)}</span>
+            <span class="text-score ${scoreClass(s.val)}">${Math.round(safeScore(s.val))}</span>
           </div>`).join("")}
       </div>
 
-      <div class="two-col" style="margin-top:20px;">
+      <div class="two-col mt-20">
         <div class="list">
           ${renderEvalSection("💪 Strengths", ev.strengths)}
           ${renderEvalSection("⚠️ Weaknesses", ev.weaknesses)}
@@ -953,8 +997,8 @@ function renderEvalSection(title, items) {
   if (!items?.length) return "";
   return `
     <div class="glass panel">
-      <strong>${title}</strong>
-      <ul style="margin:8px 0 0;padding-left:18px;">
+      <strong>${escapeHtml(title)}</strong>
+      <ul class="m-8-0-0 pl-18">
         ${items.map(i => `<li class="muted">${escapeHtml(i)}</li>`).join("")}
       </ul>
     </div>`;
@@ -1001,7 +1045,7 @@ async function loadWorkspaceTab(tab) {
       content.innerHTML = renderProjectsTab(items);
       content.querySelector("#newProjectBtn")?.addEventListener("click", showNewProjectModal);
       content.querySelectorAll(".open-project-btn").forEach(btn => {
-        btn.onclick = () => { window.location.hash = `#/project/${btn.dataset.id}`; render(); };
+        btn.onclick = () => { window.location.hash = `#/project/${idAttr(btn.dataset.id)}`; render(); };
       });
       content.querySelectorAll(".delete-project-btn").forEach(btn => {
         btn.onclick = () => deleteProject(btn.dataset.id);
@@ -1011,7 +1055,7 @@ async function loadWorkspaceTab(tab) {
       state.generatedIdeasCache = items;
       content.innerHTML = renderGeneratedIdeasTab(items);
       content.querySelectorAll(".open-idea-btn").forEach(btn => {
-        btn.onclick = () => { window.location.hash = `#/idea/${btn.dataset.id}`; render(); };
+        btn.onclick = () => { window.location.hash = `#/idea/${idAttr(btn.dataset.id)}`; render(); };
       });
       content.querySelectorAll(".create-project-btn").forEach(btn => {
         btn.onclick = () => createProjectFromIdea(btn.dataset.id);
@@ -1025,7 +1069,7 @@ async function loadWorkspaceTab(tab) {
       });
     }
   } catch (err) {
-    content.innerHTML = `<p class="muted" style="padding:20px;">${escapeHtml(err.message)}</p>`;
+    content.innerHTML = `<p class="muted p-20">${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -1039,8 +1083,8 @@ function renderProjectsTab(projects) {
     </div>`;
 
   return `
-    <div class="row" style="margin-bottom:14px;">
-      <h3 style="margin:0;">Projects (${projects.length})</h3>
+    <div class="row mb-14">
+      <h3 class="m-0">Projects (${projects.length})</h3>
       <button class="btn btn-primary" id="newProjectBtn">+ New Project</button>
     </div>
     <div class="grid cards">
@@ -1048,17 +1092,17 @@ function renderProjectsTab(projects) {
         <article class="problem-card glass">
           <div class="row">
             <strong>${escapeHtml(p.title)}</strong>
-            <span class="status-badge status-${p.status}">${escapeHtml(p.status)}</span>
+            <span class="status-badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span>
           </div>
           <div class="muted">${escapeHtml(p.description || "")}</div>
           <div class="progress-wrap">
-            <div class="progress-bar" style="width:${p.progress_pct}%;"></div>
+            <div class="progress-bar ${scoreClass(p.progress_pct)}"></div>
           </div>
-          <div class="muted" style="font-size:.8rem;">${p.progress_pct}% complete</div>
+          <div class="muted fs-8">${safeScore(p.progress_pct)}% complete</div>
           <div>${buildTechBadges(p.tech_stack || [])}</div>
-          <div class="row" style="margin-top:8px;">
-            <button class="btn btn-ghost open-project-btn" data-id="${p.id}">Open</button>
-            <button class="btn btn-ghost delete-project-btn" data-id="${p.id}" style="color:var(--danger);">Delete</button>
+          <div class="row mt-8">
+            <button class="btn btn-ghost open-project-btn" data-id="${idAttr(p.id)}">Open</button>
+            <button class="btn btn-ghost delete-project-btn text-danger" data-id="${idAttr(p.id)}">Delete</button>
           </div>
         </article>`).join("")}
     </div>`;
@@ -1074,7 +1118,7 @@ function renderGeneratedIdeasTab(ideas) {
     </div>`;
 
   return `
-    <h3 style="margin:0 0 14px;">Generated Ideas (${ideas.length})</h3>
+    <h3 class="m-0-0-14">Generated Ideas (${ideas.length})</h3>
     <div class="grid cards">
       ${ideas.map(i => `
         <article class="problem-card glass">
@@ -1083,11 +1127,11 @@ function renderGeneratedIdeasTab(ideas) {
             <span class="${diffClass(i.difficulty)}">${escapeHtml(i.difficulty)}</span>
           </div>
           <div class="muted">${escapeHtml(i.problem_statement || "")}</div>
-          <div class="muted" style="font-size:.8rem;">${escapeHtml(i.domain)} · ${timeAgo(i.created_at)}</div>
+          <div class="muted fs-8">${escapeHtml(i.domain)} · ${timeAgo(i.created_at)}</div>
           <div>${buildTechBadges(i.tech_stack || [])}</div>
-          <div class="row" style="margin-top:8px;">
-            <button class="btn btn-ghost open-idea-btn" data-id="${i.id}">View</button>
-            <button class="btn btn-primary create-project-btn" data-id="${i.id}">Create Project</button>
+          <div class="row mt-8">
+            <button class="btn btn-ghost open-idea-btn" data-id="${idAttr(i.id)}">View</button>
+            <button class="btn btn-primary create-project-btn" data-id="${idAttr(i.id)}">Create Project</button>
           </div>
         </article>`).join("")}
     </div>`;
@@ -1103,16 +1147,18 @@ function renderSavedTab(saved) {
     </div>`;
 
   return `
-    <h3 style="margin:0 0 14px;">Saved Problems (${saved.length})</h3>
+    <h3 class="m-0-0-14">Saved Problems (${saved.length})</h3>
     <div class="grid cards">
       ${saved.map(p => renderProblemCard(p)).join("")}
     </div>`;
 }
 
 async function deleteProject(id) {
+  const projectId = safeId(id);
+  if (projectId === null) return;
   if (!confirm("Delete this project? This cannot be undone.")) return;
   try {
-    await api.projects.delete(Number(id));
+    await api.projects.delete(projectId);
     toast("Project deleted", "info");
     await loadWorkspaceTab("projects");
   } catch (err) { toast(err.message, "error"); }
@@ -1123,7 +1169,7 @@ function showNewProjectModal() {
   modal.className = "modal-overlay";
   modal.innerHTML = `
     <div class="modal-card glass">
-      <h3 style="margin:0 0 16px;">Create New Project</h3>
+      <h3 class="m-0-0-16">Create New Project</h3>
       <form id="newProjectForm">
         <div class="field"><label>Title</label><input name="title" placeholder="Project title" required/></div>
         <div class="field"><label>Description</label><textarea name="description" rows="3" placeholder="What is this project about?"></textarea></div>
@@ -1133,7 +1179,7 @@ function showNewProjectModal() {
           </select>
         </div>
         <div class="field"><label>Duration (weeks)</label><input type="number" name="duration" placeholder="e.g. 4" min="1" max="52"/></div>
-        <div class="row" style="margin-top:8px;">
+        <div class="row mt-8">
           <button class="btn btn-ghost" type="button" id="cancelModal">Cancel</button>
           <button class="btn btn-primary" type="submit">Create Project</button>
         </div>
@@ -1181,20 +1227,20 @@ function renderProjectDetailHTML(proj) {
   const weeks = [...new Set(tasks.map(t => t.week_number))].sort((a, b) => a - b);
 
   return `
-    <div class="glass panel" style="margin-bottom:14px;">
+    <div class="glass panel mb-14">
       <div class="row">
         <div>
           <div class="muted"><a href="#/workspace">Workspace</a> → Projects</div>
-          <h2 style="margin:4px 0 0;">${escapeHtml(proj.title)}</h2>
+          <h2 class="m-4-0-0">${escapeHtml(proj.title)}</h2>
         </div>
-        <span class="status-badge status-${proj.status}">${escapeHtml(proj.status)}</span>
+        <span class="status-badge ${statusClass(proj.status)}">${escapeHtml(proj.status)}</span>
       </div>
-      <div class="muted" style="margin-top:8px;">${escapeHtml(proj.description || "")}</div>
-      <div class="progress-wrap" style="margin:14px 0 6px;">
-        <div class="progress-bar" style="width:${proj.progress_pct}%;"></div>
+      <div class="muted mt-8">${escapeHtml(proj.description || "")}</div>
+      <div class="progress-wrap progress-wrap-spaced">
+        <div class="progress-bar ${scoreClass(proj.progress_pct)}"></div>
       </div>
-      <div class="muted" style="font-size:.85rem;">${proj.progress_pct}% complete</div>
-      <div style="margin-top:12px;">${buildTechBadges(proj.tech_stack || [])}</div>
+      <div class="muted fs-85">${safeScore(proj.progress_pct)}% complete</div>
+      <div class="mt-12">${buildTechBadges(proj.tech_stack || [])}</div>
     </div>
 
     ${roadmap ? renderRoadmapHTML(roadmap, weeks, tasks) : `
@@ -1209,29 +1255,29 @@ function renderRoadmapHTML(roadmap, weeks, tasks) {
   return `
     <div class="glass panel">
       <div class="row">
-        <h3 style="margin:0;">${escapeHtml(roadmap.title)}</h3>
-        <span class="muted">${roadmap.total_weeks} weeks</span>
+        <h3 class="m-0">${escapeHtml(roadmap.title)}</h3>
+        <span class="muted">${escapeHtml(roadmap.total_weeks)} weeks</span>
       </div>
       ${weeks.map(week => {
         const weekTasks = tasks.filter(t => t.week_number === week);
         return `
           <div class="week-block">
-            <h4 class="week-title">Week ${week}</h4>
+            <h4 class="week-title">Week ${escapeHtml(week)}</h4>
             ${weekTasks.map(task => `
               <div class="task-row ${task.status === "completed" ? "task-done" : ""}">
-                <input type="checkbox" class="task-check" data-id="${task.id}" ${task.status === "completed" ? "checked" : ""}/>
+                <input type="checkbox" class="task-check" data-id="${idAttr(task.id)}" ${task.status === "completed" ? "checked" : ""}/>
                 <div class="task-info">
                   <span>${task.is_milestone ? "🏁 " : ""}${escapeHtml(task.title)}</span>
-                  ${task.phase ? `<span class="pill ghost" style="font-size:.75rem;">${escapeHtml(task.phase)}</span>` : ""}
+                  ${task.phase ? `<span class="pill ghost fs-75">${escapeHtml(task.phase)}</span>` : ""}
                 </div>
-                ${task.estimated_hours ? `<span class="muted" style="font-size:.8rem;">${task.estimated_hours}h</span>` : ""}
+                  ${task.estimated_hours ? `<span class="muted fs-8">${escapeHtml(task.estimated_hours)}h</span>` : ""}
               </div>`).join("")}
           </div>`;
       }).join("")}
       ${roadmap.learning_resources?.length ? `
         <div class="divider"></div>
         <strong>Learning Resources</strong>
-        <ul style="margin:8px 0 0;padding-left:18px;">
+        <ul class="m-8-0-0 pl-18">
           ${roadmap.learning_resources.map(r => `<li class="muted">${escapeHtml(r)}</li>`).join("")}
         </ul>` : ""}
     </div>`;
@@ -1255,7 +1301,8 @@ function wireProjectDetailEvents(proj) {
 
   document.querySelectorAll(".task-check").forEach(cb => {
     cb.onchange = async () => {
-      const taskId = Number(cb.dataset.id);
+      const taskId = safeId(cb.dataset.id);
+      if (taskId === null) return;
       const newStatus = cb.checked ? "completed" : "todo";
       try {
         await api.projects.updateTask(taskId, { status: newStatus });
@@ -1264,9 +1311,9 @@ function wireProjectDetailEvents(proj) {
         // Refresh project progress bar
         const updated = await api.projects.get(proj.id);
         const bar = document.querySelector(".progress-bar");
-        if (bar) bar.style.width = `${updated.progress_pct}%`;
+        if (bar) bar.className = `progress-bar ${scoreClass(updated.progress_pct)}`;
         const pctEl = document.querySelector(".progress-wrap + .muted");
-        if (pctEl) pctEl.textContent = `${updated.progress_pct}% complete`;
+        if (pctEl) pctEl.textContent = `${safeScore(updated.progress_pct)}% complete`;
       } catch (err) {
         toast(err.message, "error");
         cb.checked = !cb.checked; // revert
@@ -1284,8 +1331,8 @@ async function communityPage() {
       <h1>Community</h1>
       <p>Share projects, ask questions, and collaborate with other innovators.</p>
     </section>
-    <div class="row" style="margin-bottom:14px;">
-      <div class="row" style="gap:8px;">
+    <div class="row mb-14">
+      <div class="row gap-8">
         ${["All","discussion","question","showcase"].map((t,i) =>
           `<button class="tab-btn ${i===0?"active":""}" data-type="${t === "All" ? "" : t}">${t.charAt(0).toUpperCase()+t.slice(1)}</button>`
         ).join("")}
@@ -1315,19 +1362,21 @@ async function loadCommunityPosts(postType) {
   try {
     const { items } = await api.community.listPosts({ post_type: postType, page_size: 30 });
     list.innerHTML = items.length
-      ? `<div class="grid" style="gap:12px;">${items.map(renderPostCard).join("")}</div>`
-      : `<p class="muted" style="padding:20px;">No posts yet. Be the first to share!</p>`;
+      ? `<div class="grid gap-12">${items.map(renderPostCard).join("")}</div>`
+      : `<p class="muted p-20">No posts yet. Be the first to share!</p>`;
 
     list.querySelectorAll(".like-post-btn").forEach(btn => {
       btn.onclick = async () => {
         try {
-          const res = await api.community.toggleLike("post", Number(btn.dataset.id));
+          const postId = safeId(btn.dataset.id);
+          if (postId === null) return;
+          const res = await api.community.toggleLike("post", postId);
           btn.textContent = res.liked ? `❤️ ${res.like_count}` : `🤍 ${res.like_count}`;
         } catch (err) { toast(err.message, "error"); }
       };
     });
     list.querySelectorAll(".open-post-btn").forEach(btn => {
-      btn.onclick = () => { window.location.hash = `#/post/${btn.dataset.id}`; render(); };
+      btn.onclick = () => { window.location.hash = `#/post/${idAttr(btn.dataset.id)}`; render(); };
     });
   } catch (err) {
     list.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
@@ -1339,14 +1388,14 @@ function renderPostCard(p) {
     <article class="problem-card glass">
       <div class="row">
         <span class="pill ghost">${escapeHtml(p.post_type)}</span>
-        <span class="muted" style="font-size:.8rem;">${timeAgo(p.created_at)}</span>
+        <span class="muted fs-8">${timeAgo(p.created_at)}</span>
       </div>
       <strong>${escapeHtml(p.title)}</strong>
-      <p class="muted" style="margin:4px 0;font-size:.9rem;">${escapeHtml(p.content.slice(0, 140))}${p.content.length > 140 ? "…" : ""}</p>
-      <div class="muted" style="font-size:.82rem;">by ${escapeHtml(p.author?.name || "")}</div>
-      <div class="row" style="margin-top:8px;">
-        <button class="btn btn-ghost open-post-btn" data-id="${p.id}">Read & Comment</button>
-        <button class="btn btn-ghost like-post-btn" data-id="${p.id}">${p.is_liked ? "❤️" : "🤍"} ${p.like_count}</button>
+      <p class="muted m-4-0 fs-9">${escapeHtml(p.content.slice(0, 140))}${p.content.length > 140 ? "…" : ""}</p>
+      <div class="muted fs-82">by ${escapeHtml(p.author?.name || "")}</div>
+      <div class="row mt-8">
+        <button class="btn btn-ghost open-post-btn" data-id="${idAttr(p.id)}">Read & Comment</button>
+        <button class="btn btn-ghost like-post-btn" data-id="${idAttr(p.id)}">${p.is_liked ? "❤️" : "🤍"} ${escapeHtml(p.like_count)}</button>
       </div>
     </article>`;
 }
@@ -1356,7 +1405,7 @@ function showNewPostModal() {
   modal.className = "modal-overlay";
   modal.innerHTML = `
     <div class="modal-card glass">
-      <h3 style="margin:0 0 16px;">Create New Post</h3>
+      <h3 class="m-0-0-16">Create New Post</h3>
       <form id="newPostForm">
         <div class="field"><label>Title</label><input name="title" placeholder="What would you like to share?" required/></div>
         <div class="field"><label>Type</label>
@@ -1367,7 +1416,7 @@ function showNewPostModal() {
           </select>
         </div>
         <div class="field"><label>Content</label><textarea name="content" rows="5" placeholder="Share your thoughts, questions, or project…" required></textarea></div>
-        <div class="row" style="margin-top:8px;">
+        <div class="row mt-8">
           <button class="btn btn-ghost" type="button" id="cancelPostModal">Cancel</button>
           <button class="btn btn-primary" type="submit">Post</button>
         </div>
@@ -1411,21 +1460,21 @@ async function postDetailPage(id) {
 
 function renderPostDetailHTML(post, comments) {
   return `
-    <div class="glass panel" style="margin-bottom:14px;">
+    <div class="glass panel mb-14">
       <div class="row">
         <div>
           <div class="muted"><a href="#/community">Community</a> · <span class="pill ghost">${escapeHtml(post.post_type)}</span></div>
-          <h2 style="margin:6px 0 0;">${escapeHtml(post.title)}</h2>
+          <h2 class="m-6-0-0">${escapeHtml(post.title)}</h2>
         </div>
-        <button class="btn btn-ghost like-post-btn" data-id="${post.id}">${post.is_liked ? "❤️" : "🤍"} ${post.like_count}</button>
+        <button class="btn btn-ghost like-post-btn" data-id="${idAttr(post.id)}">${post.is_liked ? "❤️" : "🤍"} ${escapeHtml(post.like_count)}</button>
       </div>
-      <div class="muted" style="margin:8px 0;font-size:.85rem;">by ${escapeHtml(post.author?.name || "")} · ${timeAgo(post.created_at)} · ${post.view_count} views</div>
+      <div class="muted m-8-0 fs-85">by ${escapeHtml(post.author?.name || "")} · ${timeAgo(post.created_at)} · ${escapeHtml(post.view_count)} views</div>
       <div class="divider"></div>
-      <p style="line-height:1.7;">${escapeHtml(post.content)}</p>
+      <p class="lh-17">${escapeHtml(post.content)}</p>
     </div>
 
     <div class="glass panel">
-      <h3 style="margin:0 0 14px;">Comments (${comments.length})</h3>
+      <h3 class="m-0-0-14">Comments (${comments.length})</h3>
       <form id="postCommentForm">
         <textarea name="content" rows="3" placeholder="Add a comment…" required></textarea>
         <button class="btn btn-primary" type="submit">Post Comment</button>
@@ -1498,11 +1547,11 @@ async function dashboardPage() {
       <section class="stats">
         <article class="stat glass">
           <strong>Points</strong>
-          <div class="stat-num">${userRes.points}</div>
+          <div class="stat-num">${escapeHtml(userRes.points)}</div>
         </article>
         <article class="stat glass">
           <strong>Badges</strong>
-          <div class="stat-num">${userRes.badges.length ? userRes.badges.join(", ") : "—"}</div>
+          <div class="stat-num">${escapeHtml(userRes.badges.length ? userRes.badges.join(", ") : "—")}</div>
         </article>
         <article class="stat glass">
           <strong>Ideas Generated</strong>
@@ -1529,11 +1578,11 @@ async function dashboardPage() {
           <article class="problem-card glass">
             <div class="row">
               <strong>${escapeHtml(p.title)}</strong>
-              <span class="status-badge status-${p.status}">${escapeHtml(p.status)}</span>
+              <span class="status-badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span>
             </div>
-            <div class="progress-wrap"><div class="progress-bar" style="width:${p.progress_pct}%;"></div></div>
-            <div class="muted" style="font-size:.8rem;">${p.progress_pct}% complete</div>
-            <a class="btn btn-ghost" href="#/project/${p.id}" style="margin-top:8px;">Open Project</a>
+            <div class="progress-wrap"><div class="progress-bar ${scoreClass(p.progress_pct)}"></div></div>
+            <div class="muted fs-8">${safeScore(p.progress_pct)}% complete</div>
+            <a class="btn btn-ghost mt-8" href="#/project/${idAttr(p.id)}">Open Project</a>
           </article>`).join("")}
       </div>` : ""}
 
@@ -1544,12 +1593,12 @@ async function dashboardPage() {
           <article class="problem-card glass">
             <strong>${escapeHtml(r.title)}</strong>
             <div class="muted">${escapeHtml(r.short_description || r.short || "")}</div>
-            ${r.id ? `<a class="btn btn-ghost" href="#/problem/${r.id}">Explore</a>` : ""}
+            ${safeId(r.id) ? `<a class="btn btn-ghost" href="#/problem/${idAttr(r.id)}">Explore</a>` : ""}
           </article>`).join("")}
       </div>` : ""}
 
       <h3 class="section-title">Quick Actions</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
+      <div class="grid grid-auto-200 gap-12">
         <a href="#/generator" class="quick-action glass">
           <div class="qa-icon">✨</div>
           <strong>Generate Ideas</strong>
@@ -1606,9 +1655,9 @@ function wireChatEvents() {
   if (!toggle || !msgs || !form) return;
 
   toggle.onclick = () => {
-    const hidden = msgs.style.display === "none";
-    msgs.style.display = hidden ? "grid" : "none";
-    form.style.display = hidden ? "flex" : "none";
+    const hidden = msgs.hidden;
+    msgs.hidden = !hidden;
+    form.hidden = !hidden;
     toggle.textContent = hidden ? "−" : "+";
   };
 
@@ -1623,8 +1672,8 @@ function wireChatEvents() {
     // Determine context from current route
     const hash = location.hash;
     let projectId, ideaId;
-    if (hash.startsWith("#/project/")) projectId = Number(hash.split("/")[2]);
-    if (hash.startsWith("#/idea/")) ideaId = Number(hash.split("/")[2]);
+    if (hash.startsWith("#/project/")) projectId = safeId(hash.split("/")[2]) ?? undefined;
+    if (hash.startsWith("#/idea/")) ideaId = safeId(hash.split("/")[2]) ?? undefined;
 
     try {
       const res = await api.ai.chat(msg, { project_id: projectId, idea_id: ideaId });
@@ -1785,4 +1834,5 @@ window.addEventListener("ideaforge:auth-expired", () => {
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 window.addEventListener("hashchange", render);
+wireHealthMonitoring();
 render();

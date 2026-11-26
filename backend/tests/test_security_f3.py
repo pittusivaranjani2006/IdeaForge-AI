@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import unittest
 from types import SimpleNamespace
@@ -13,12 +14,12 @@ from app import main as main_module
 from app.api.routes import auth as auth_routes
 from app.core import dependencies
 from app.core import security
-from app.core.config import Settings, _DEFAULT_DATABASE_URL
+from app.core.config import Settings
 from app.schemas.auth import LoginRequest, RegisterRequest
 
 VALID_SECRET = "f3-test-secret-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
 VALID_PRODUCTION_ORIGINS = "https://example.com,https://admin.example.com"
-VALID_PRODUCTION_DATABASE_URL = "postgresql://db.internal:5432/ideaforge"
+FAKE_DATABASE_URL = "postgresql://f3-test-user@db.invalid:5432/ideaforge_fake"
 FAKE_DB_CREDENTIAL = "fake-db-user-M9n8B7v6"
 FAKE_API_KEY_CREDENTIAL = "fake-api-key-C5d4E3f2"
 FAKE_ORIGIN_CREDENTIAL = "fake-origin-user-B1n2M3n4"
@@ -27,7 +28,18 @@ FAKE_SECRET_CREDENTIAL = "fake-secret"
 
 def _settings(**kwargs):
     kwargs.setdefault("_env_file", None)
-    return Settings(**kwargs)
+    kwargs.setdefault("database_url", FAKE_DATABASE_URL)
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("ALLOWED_ORIGINS", None)
+        os.environ.pop("DATABASE_URL", None)
+        return Settings(**kwargs)
+
+
+def _settings_without_database_url(**kwargs):
+    kwargs.setdefault("_env_file", None)
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("DATABASE_URL", None)
+        return Settings(**kwargs)
 
 
 def _prod_settings(**kwargs):
@@ -35,7 +47,7 @@ def _prod_settings(**kwargs):
     kwargs.setdefault("secret_key", VALID_SECRET)
     kwargs.setdefault("app_env", "production")
     kwargs.setdefault("allowed_origins", VALID_PRODUCTION_ORIGINS)
-    kwargs.setdefault("database_url", VALID_PRODUCTION_DATABASE_URL)
+    kwargs.setdefault("database_url", FAKE_DATABASE_URL)
     return Settings(**kwargs)
 
 
@@ -136,7 +148,7 @@ class ProductionConfigurationTests(unittest.TestCase):
         self.assertEqual(settings.app_env, "development")
         self.assertTrue(settings.is_development)
         self.assertFalse(settings.is_production)
-        self.assertEqual(settings.database_url, _DEFAULT_DATABASE_URL)
+        self.assertEqual(settings.database_url, FAKE_DATABASE_URL)
         self.assertTrue(any("localhost" in origin for origin in settings.cors_origins))
         self.assertTrue(any("127.0.0.1" in origin for origin in settings.cors_origins))
         self.assertEqual(settings.docs_url, "/docs")
@@ -162,7 +174,7 @@ class ProductionConfigurationTests(unittest.TestCase):
             _settings(
                 secret_key=VALID_SECRET,
                 app_env="production",
-                database_url=VALID_PRODUCTION_DATABASE_URL,
+                database_url=FAKE_DATABASE_URL,
             )
 
     def test_production_rejects_localhost_and_loopback_origins(self):
@@ -253,15 +265,15 @@ class ProductionConfigurationTests(unittest.TestCase):
 
     def test_production_requires_explicit_database_url(self):
         with self.assertRaises(ValidationError):
-            _settings(
+            _settings_without_database_url(
                 secret_key=VALID_SECRET,
                 app_env="production",
                 allowed_origins=VALID_PRODUCTION_ORIGINS,
             )
 
-    def test_production_rejects_default_database_url(self):
+    def test_production_rejects_empty_database_url(self):
         with self.assertRaises(ValidationError):
-            _prod_settings(database_url=_DEFAULT_DATABASE_URL)
+            _prod_settings(database_url="")
 
     def test_production_validation_errors_do_not_expose_database_credentials(self):
         marker = "SENSITIVE-DB-CREDENTIAL-MARKER"

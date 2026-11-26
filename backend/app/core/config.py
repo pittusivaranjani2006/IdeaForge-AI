@@ -12,7 +12,6 @@ from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ALLOWED_ALGORITHMS = frozenset({"HS256", "HS384", "HS512"})
-_DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/ideaforge"
 _ENVIRONMENT_ALIASES = {"dev": "development", "prod": "production"}
 _HOSTNAME_PATTERN = re.compile(
     r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)"
@@ -95,7 +94,7 @@ class Settings(BaseSettings):
             raise sanitized from None
 
     # ── Database ──────────────────────────────────────────────
-    database_url: str = _DEFAULT_DATABASE_URL
+    database_url: str
 
     # ── JWT ───────────────────────────────────────────────────
     secret_key: str
@@ -204,8 +203,6 @@ class Settings(BaseSettings):
             _validate_production_origin(origin)
         if "database_url" not in self.model_fields_set:
             raise ValueError("DATABASE_URL must be explicitly configured in production")
-        if self.database_url == _DEFAULT_DATABASE_URL:
-            raise ValueError("DATABASE_URL must not use the development default")
         return self
 
 

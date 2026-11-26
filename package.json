@@ -1,0 +1,8 @@
+{
+  "name": "ideaforge-ai-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:frontend": "node --test frontend-tests"
+  }
+}

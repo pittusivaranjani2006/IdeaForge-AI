@@ -3,7 +3,6 @@
  *
  * Thin wrapper around the FastAPI backend.
  * Keeps all backend URLs, auth headers, and error handling in one place.
- * The existing app.js can call these functions instead of localStorage.
  *
  * Usage:
  *   import { api } from './api.js';
@@ -11,19 +10,56 @@
  */
 
 // ── Configuration ─────────────────────────────────────────────────────────────
-// Change this to your deployed backend URL in production.
-const BASE_URL = "http://127.0.0.1:8000/api";
+function isLocalOrigin() {
+  if (typeof location === "undefined") return true;
+  if (location.protocol === "file:") return true;
+  return /^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(location.hostname || "");
+}
+
+function normalizeUrl(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().replace(/\/+$/, "");
+  if (!normalized) return fallback;
+  if (normalized.startsWith("/") || /^https?:\/\//i.test(normalized)) return normalized;
+  return fallback;
+}
+
+const localOrigin = isLocalOrigin();
+const runtimeConfig = typeof window !== "undefined" ? window.__IDEAFORGE_CONFIG__ || {} : {};
+const API_BASE_URL = normalizeUrl(
+  runtimeConfig.apiBaseUrl || (localOrigin ? "http://127.0.0.1:8000/api" : "/api"),
+  localOrigin ? "http://127.0.0.1:8000/api" : "/api"
+);
+const HEALTH_URL = normalizeUrl(
+  runtimeConfig.healthUrl || (localOrigin ? "http://127.0.0.1:8000/health" : "/health"),
+  localOrigin ? "http://127.0.0.1:8000/health" : "/health"
+);
 
 // ── Token management ──────────────────────────────────────────────────────────
+const TOKEN_KEY = "if_access_token";
+try {
+  localStorage.removeItem(TOKEN_KEY);
+} catch {}
+let memoryToken = null;
 const TokenStore = {
   get() {
-    return localStorage.getItem("if_access_token") || null;
+    try {
+      return sessionStorage.getItem(TOKEN_KEY) || memoryToken;
+    } catch {
+      return memoryToken;
+    }
   },
   set(token) {
-    localStorage.setItem("if_access_token", token);
+    memoryToken = token;
+    try {
+      sessionStorage.setItem(TOKEN_KEY, token);
+    } catch {}
   },
   clear() {
-    localStorage.removeItem("if_access_token");
+    memoryToken = null;
+    try {
+      sessionStorage.removeItem(TOKEN_KEY);
+    } catch {}
   },
 };
 
@@ -35,20 +71,21 @@ const TokenStore = {
  * @returns {Promise<any>}
  */
 async function request(path, options = {}) {
-  const token = TokenStore.get();
+  const { auth = true, ...fetchOptions } = options;
+  const token = auth ? TokenStore.get() : null;
   const headers = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers || {}),
+    ...(fetchOptions.headers || {}),
   };
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...fetchOptions,
     headers,
   });
 
   // Handle token expiry
-  if (res.status === 401) {
+  if (res.status === 401 && auth) {
     TokenStore.clear();
     window.dispatchEvent(new CustomEvent("ideaforge:auth-expired"));
     throw new ApiError(401, "Session expired. Please log in again.");
@@ -76,6 +113,7 @@ const auth = {
   async register(email, password, name) {
     const data = await request("/auth/register", {
       method: "POST",
+      auth: false,
       body: JSON.stringify({ email, password, name }),
     });
     TokenStore.set(data.access_token);
@@ -85,6 +123,7 @@ const auth = {
   async login(email, password) {
     const data = await request("/auth/login", {
       method: "POST",
+      auth: false,
       body: JSON.stringify({ email, password }),
     });
     TokenStore.set(data.access_token);
@@ -296,15 +335,32 @@ const ai = {
 };
 
 // ── Health check ──────────────────────────────────────────────────────────────
-async function checkHealth() {
+async function checkHealth({ timeoutMs = 4000 } = {}) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
-    const res = await fetch(`${BASE_URL.replace("/api", "")}/health`);
+    const res = await fetch(HEALTH_URL, {
+      method: "GET",
+      ...(controller ? { signal: controller.signal } : {}),
+    });
     return res.ok;
   } catch {
     return false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
 // ── Exports ───────────────────────────────────────────────────────────────────
-export const api = { auth, ideas, projects, community, ai, checkHealth, ApiError, TokenStore };
+export const api = {
+  auth,
+  ideas,
+  projects,
+  community,
+  ai,
+  checkHealth,
+  ApiError,
+  TokenStore,
+  config: { apiBaseUrl: API_BASE_URL, healthUrl: HEALTH_URL },
+};
 export default api;

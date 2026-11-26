@@ -635,7 +635,9 @@ body.light pre {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  border: 4px solid var(--primary);
+  border: 4px solid var(--score-color, var(--primary));
+  background: conic-gradient(var(--score-color, var(--primary)) 0 var(--score-pct, 0%), var(--panel-strong) var(--score-pct, 0%) 100%);
+  box-shadow: inset 0 0 0 12px var(--bg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -676,9 +678,16 @@ body.light pre {
 }
 
 .score-bar {
+  width: var(--score-pct, 0%);
   height: 100%;
   border-radius: 999px;
+  background: var(--score-color, var(--primary));
   transition: width 0.6s ease;
+}
+
+.text-score {
+  color: var(--score-color, var(--primary));
+  font-weight: 600;
 }
 
 .disclaimer-box {
@@ -701,6 +710,7 @@ body.light pre {
 }
 
 .progress-bar {
+  width: var(--score-pct, 0%);
   height: 100%;
   background: linear-gradient(90deg, var(--primary), var(--accent));
   border-radius: 999px;
@@ -892,3 +902,164 @@ body.light pre {
     grid-template-columns: 100px 1fr 28px;
   }
 }
+
+.health-banner[hidden] {
+  display: none;
+}
+
+.health-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--danger);
+  box-shadow: var(--shadow);
+}
+
+[hidden],
+.hidden { display: none !important; }
+
+.mt-4 { margin-top: 4px; }
+.mt-8 { margin-top: 8px; }
+.mt-10 { margin-top: 10px; }
+.mt-12 { margin-top: 12px; }
+.mt-14 { margin-top: 14px; }
+.mt-16 { margin-top: 16px; }
+.mt-20 { margin-top: 20px; }
+.mb-14 { margin-bottom: 14px; }
+.m-0 { margin: 0; }
+.m-6-0-0 { margin: 6px 0 0; }
+.m-4-0-0 { margin: 4px 0 0; }
+.m-4-0 { margin: 4px 0; }
+.m-8-0 { margin: 8px 0; }
+.m-8-0-0 { margin: 8px 0 0; }
+.m-0-0-16 { margin: 0 0 16px; }
+.m-0-0-14 { margin: 0 0 14px; }
+.m-14-0-6 { margin: 14px 0 6px; }
+.pl-18 { padding-left: 18px; }
+.p-20 { padding: 20px; }
+.fs-85 { font-size: .85rem; }
+.fs-82 { font-size: .82rem; }
+.fs-8 { font-size: .8rem; }
+.fs-75 { font-size: .75rem; }
+.fs-9 { font-size: .9rem; }
+.lh-17 { line-height: 1.7; }
+.text-center { text-align: center; }
+.text-danger { color: var(--danger); }
+.btn-wide { width: 100%; padding: 14px; }
+.row-end { justify-content: flex-end; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.skeleton-120 { height: 120px; margin-bottom: 14px; }
+.skeleton-200 { height: 200px; }
+.detail-title { margin: 8px 0 0; font-size: clamp(1.4rem, 3vw, 2rem); }
+.grid-auto-200 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.progress-wrap-spaced { margin: 14px 0 6px; }
+
+.score-0 { --score-pct: 0%; --score-color: var(--danger); }
+.score-1 { --score-pct: 1%; --score-color: var(--danger); }
+.score-2 { --score-pct: 2%; --score-color: var(--danger); }
+.score-3 { --score-pct: 3%; --score-color: var(--danger); }
+.score-4 { --score-pct: 4%; --score-color: var(--danger); }
+.score-5 { --score-pct: 5%; --score-color: var(--danger); }
+.score-6 { --score-pct: 6%; --score-color: var(--danger); }
+.score-7 { --score-pct: 7%; --score-color: var(--danger); }
+.score-8 { --score-pct: 8%; --score-color: var(--danger); }
+.score-9 { --score-pct: 9%; --score-color: var(--danger); }
+.score-10 { --score-pct: 10%; --score-color: var(--danger); }
+.score-11 { --score-pct: 11%; --score-color: var(--danger); }
+.score-12 { --score-pct: 12%; --score-color: var(--danger); }
+.score-13 { --score-pct: 13%; --score-color: var(--danger); }
+.score-14 { --score-pct: 14%; --score-color: var(--danger); }
+.score-15 { --score-pct: 15%; --score-color: var(--danger); }
+.score-16 { --score-pct: 16%; --score-color: var(--danger); }
+.score-17 { --score-pct: 17%; --score-color: var(--danger); }
+.score-18 { --score-pct: 18%; --score-color: var(--danger); }
+.score-19 { --score-pct: 19%; --score-color: var(--danger); }
+.score-20 { --score-pct: 20%; --score-color: var(--danger); }
+.score-21 { --score-pct: 21%; --score-color: var(--danger); }
+.score-22 { --score-pct: 22%; --score-color: var(--danger); }
+.score-23 { --score-pct: 23%; --score-color: var(--danger); }
+.score-24 { --score-pct: 24%; --score-color: var(--danger); }
+.score-25 { --score-pct: 25%; --score-color: var(--danger); }
+.score-26 { --score-pct: 26%; --score-color: var(--danger); }
+.score-27 { --score-pct: 27%; --score-color: var(--danger); }
+.score-28 { --score-pct: 28%; --score-color: var(--danger); }
+.score-29 { --score-pct: 29%; --score-color: var(--danger); }
+.score-30 { --score-pct: 30%; --score-color: var(--danger); }
+.score-31 { --score-pct: 31%; --score-color: var(--danger); }
+.score-32 { --score-pct: 32%; --score-color: var(--danger); }
+.score-33 { --score-pct: 33%; --score-color: var(--danger); }
+.score-34 { --score-pct: 34%; --score-color: var(--danger); }
+.score-35 { --score-pct: 35%; --score-color: var(--danger); }
+.score-36 { --score-pct: 36%; --score-color: var(--danger); }
+.score-37 { --score-pct: 37%; --score-color: var(--danger); }
+.score-38 { --score-pct: 38%; --score-color: var(--danger); }
+.score-39 { --score-pct: 39%; --score-color: var(--danger); }
+.score-40 { --score-pct: 40%; --score-color: var(--danger); }
+.score-41 { --score-pct: 41%; --score-color: var(--danger); }
+.score-42 { --score-pct: 42%; --score-color: var(--danger); }
+.score-43 { --score-pct: 43%; --score-color: var(--danger); }
+.score-44 { --score-pct: 44%; --score-color: var(--danger); }
+.score-45 { --score-pct: 45%; --score-color: var(--primary); }
+.score-46 { --score-pct: 46%; --score-color: var(--primary); }
+.score-47 { --score-pct: 47%; --score-color: var(--primary); }
+.score-48 { --score-pct: 48%; --score-color: var(--primary); }
+.score-49 { --score-pct: 49%; --score-color: var(--primary); }
+.score-50 { --score-pct: 50%; --score-color: var(--primary); }
+.score-51 { --score-pct: 51%; --score-color: var(--primary); }
+.score-52 { --score-pct: 52%; --score-color: var(--primary); }
+.score-53 { --score-pct: 53%; --score-color: var(--primary); }
+.score-54 { --score-pct: 54%; --score-color: var(--primary); }
+.score-55 { --score-pct: 55%; --score-color: var(--primary); }
+.score-56 { --score-pct: 56%; --score-color: var(--primary); }
+.score-57 { --score-pct: 57%; --score-color: var(--primary); }
+.score-58 { --score-pct: 58%; --score-color: var(--primary); }
+.score-59 { --score-pct: 59%; --score-color: var(--primary); }
+.score-60 { --score-pct: 60%; --score-color: var(--primary); }
+.score-61 { --score-pct: 61%; --score-color: var(--primary); }
+.score-62 { --score-pct: 62%; --score-color: var(--primary); }
+.score-63 { --score-pct: 63%; --score-color: var(--primary); }
+.score-64 { --score-pct: 64%; --score-color: var(--primary); }
+.score-65 { --score-pct: 65%; --score-color: var(--primary); }
+.score-66 { --score-pct: 66%; --score-color: var(--primary); }
+.score-67 { --score-pct: 67%; --score-color: var(--primary); }
+.score-68 { --score-pct: 68%; --score-color: var(--primary); }
+.score-69 { --score-pct: 69%; --score-color: var(--primary); }
+.score-70 { --score-pct: 70%; --score-color: var(--accent); }
+.score-71 { --score-pct: 71%; --score-color: var(--accent); }
+.score-72 { --score-pct: 72%; --score-color: var(--accent); }
+.score-73 { --score-pct: 73%; --score-color: var(--accent); }
+.score-74 { --score-pct: 74%; --score-color: var(--accent); }
+.score-75 { --score-pct: 75%; --score-color: var(--accent); }
+.score-76 { --score-pct: 76%; --score-color: var(--accent); }
+.score-77 { --score-pct: 77%; --score-color: var(--accent); }
+.score-78 { --score-pct: 78%; --score-color: var(--accent); }
+.score-79 { --score-pct: 79%; --score-color: var(--accent); }
+.score-80 { --score-pct: 80%; --score-color: var(--accent); }
+.score-81 { --score-pct: 81%; --score-color: var(--accent); }
+.score-82 { --score-pct: 82%; --score-color: var(--accent); }
+.score-83 { --score-pct: 83%; --score-color: var(--accent); }
+.score-84 { --score-pct: 84%; --score-color: var(--accent); }
+.score-85 { --score-pct: 85%; --score-color: var(--accent); }
+.score-86 { --score-pct: 86%; --score-color: var(--accent); }
+.score-87 { --score-pct: 87%; --score-color: var(--accent); }
+.score-88 { --score-pct: 88%; --score-color: var(--accent); }
+.score-89 { --score-pct: 89%; --score-color: var(--accent); }
+.score-90 { --score-pct: 90%; --score-color: var(--accent); }
+.score-91 { --score-pct: 91%; --score-color: var(--accent); }
+.score-92 { --score-pct: 92%; --score-color: var(--accent); }
+.score-93 { --score-pct: 93%; --score-color: var(--accent); }
+.score-94 { --score-pct: 94%; --score-color: var(--accent); }
+.score-95 { --score-pct: 95%; --score-color: var(--accent); }
+.score-96 { --score-pct: 96%; --score-color: var(--accent); }
+.score-97 { --score-pct: 97%; --score-color: var(--accent); }
+.score-98 { --score-pct: 98%; --score-color: var(--accent); }
+.score-99 { --score-pct: 99%; --score-color: var(--accent); }
+.score-100 { --score-pct: 100%; --score-color: var(--accent); }
