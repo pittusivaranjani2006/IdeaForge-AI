@@ -1,12 +1,45 @@
 # Root Python environment
 /venv313/
+/backend/venv313/
 
 # Downloaded SQLAlchemy package files
 /backend/sqlalchemy-2.1.9/
 /backend/*.tar.gz
-# Saved browser page and assets
-/IdeaForge AI.html
-/IdeaForge AI_files/
-/backend/venv313/
 
-/backend/venv313/
+# Virtual environments
+**/.venv/
+**/venv/
+**/env/
+**/venv*/
+**/.virtualenv/
+**/.pyenv/
+
+# Environment files and secrets
+.env
+.env.*
+*.env
+!.env.example
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# Test, coverage, and temporary files
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.cache/
+*.tmp
+*.temp
+*.bak
+*~
